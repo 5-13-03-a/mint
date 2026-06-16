@@ -42,7 +42,7 @@
     try{ const db=await cdbOpen(); return await new Promise((res,rej)=>{ const tx=db.transaction(CKV,'readwrite'); tx.objectStore(CKV).put(v,k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }catch(e){ console.warn('[chat] 保存失败',e); }
   }
 
-  let _prompts=[], _sel='locked', _ctxRounds=10, _timeAware=false;
+  let _prompts=[], _sel='locked', _ctxRounds=10, _timeAware=false, _bilingual=false;
   const getPrompts = () => _prompts;
   const setPrompts = a => { _prompts=a; cdbSet('prompts', a); };
   const getSel = () => _sel;
@@ -51,7 +51,9 @@
   const setCtxRounds = n => { _ctxRounds=n; cdbSet('ctxRounds', n); };
   const getTimeAware = () => _timeAware;
   const setTimeAware = b => { _timeAware=b; cdbSet('timeAware', b); };
-  const getSelectedPromptContent = () => { const s=getSel(); if(s==='locked') return LOCKED_PROMPT; const p=getPrompts().find(x=>x.id===s); return p ? p.content : LOCKED_PROMPT; };
+  const getBilingual = () => _bilingual;
+  const setBilingual = b => { _bilingual=b; cdbSet('bilingual', b); };
+  const getSelectedPromptContent = () => { const s=getSel(); if(s==='locked') return LOCKED_PROMPT; const p=getPrompts().find(x=>x.id===s); return p ? (LOCKED_PROMPT + '\n\n# User Persona (user的设定)\n' + p.content) : LOCKED_PROMPT; };
 
   /* 读取 API 连接（与 9.api.js 共用 IndexedDB） */
   function apiDbAll(){ return new Promise(resolve=>{ try{ const r=indexedDB.open('HomeApiDB',1); r.onsuccess=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains('conns')){ resolve([]); db.close(); return; } const tx=db.transaction('conns','readonly'); const q=tx.objectStore('conns').getAll(); q.onsuccess=()=>resolve(q.result||[]); q.onerror=()=>resolve([]); tx.oncomplete=()=>db.close(); }; r.onerror=()=>resolve([]); }catch{ resolve([]); } }); }
@@ -85,11 +87,20 @@
       const t=`${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日 ${wd} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
       sys += '\n\n# 当前时间\n现在是 '+t+'，请结合此刻的时间、时段（早晚）和日期自然地回应。';
     }
-    sys += '\n\n# 输出要求\n用中文回复。把回复按自然语气拆成多句，每一句单独成行、用换行分隔，不要用逗号顿号把多句强行连成一长串。';
+    if (getBilingual()) {
+      sys += '\n\n# 双语与分句输出要求\n1. 请使用双语进行回复（你的设定语言原文 + 中文翻译）。\n2. 必须将回复按自然语气拆分成多个短句或短段落，不要把所有话连成一长串。\n3. 每拆分出的一句/段，必须严格按照以下格式输出：\n[RAW] 这里是原文\n[ZH] 这里是对应的中文翻译\n\n不同句/段之间必须用空行分隔。';
+    } else {
+      sys += '\n\n# 输出要求\n用中文回复。把回复按自然语气拆成多句，每一句单独成行、用换行分隔，不要用逗号顿号把多句强行连成一长串。';
+    }
     if (wbEnd) sys += '\n\n' + wbEnd;
     return sys;
   }
-  function splitReply(text){ return String(text||'').split(/\n+/).map(s=>s.trim()).filter(Boolean); }
+  function splitReply(text){ 
+    if (getBilingual() && (String(text||'').includes('[RAW]') || String(text||'').includes('[EN]'))) {
+      return String(text||'').split(/(?=\[(?:RAW|EN)\])/).map(s=>s.trim()).filter(Boolean);
+    }
+    return String(text||'').split(/\n{2,}/).map(s=>s.trim()).filter(Boolean); 
+  }
 
   const CSS = `
   #chatApp { position:fixed; inset:0; z-index:999999; display:none; flex-direction:column; overflow:hidden;
@@ -118,7 +129,7 @@
     -webkit-mask-image:linear-gradient(to bottom, #000 65%, transparent); mask-image:linear-gradient(to bottom, #000 65%, transparent); transition: height 0.3s ease; }
   body.is-fullscreen #chatApp .nav.sub::before { height: 150px; }
   #chatApp .nav.sub .back { cursor:pointer; line-height:1; color:var(--ink); display:flex; }
-  #chatApp .nav.sub .head-ava { width:34px; height:34px; border-radius:12px; background:#f0f0f0 center/cover; flex-shrink:0; overflow:hidden; }
+  #chatApp .nav.sub .head-ava { width:34px; height:34px; border-radius:50%; background:#f0f0f0 center/cover; flex-shrink:0; overflow:hidden; }
   #chatApp .nav.sub .ctitle { font-size:15px; font-weight:600; text-align:left; line-height:1.2; }
   #chatApp .nav.sub .csub { font-size:9px; opacity:.5; font-weight:400; letter-spacing:1px; }
   #chatApp .nav.sub .right { margin-left:auto; }
@@ -132,7 +143,7 @@
   #chatApp .grp-tab { flex:0 0 auto; padding:7px 17px; border:1.5px solid var(--line); border-radius:16px; background:var(--bg); color:var(--ink2); font-size:12px; letter-spacing:.5px; cursor:pointer; transition:.2s ease; }
   #chatApp .grp-tab.on { background:var(--ink); color:#fff; border-color:var(--ink); }
 
-  #chatApp .list { flex:1; overflow-y:auto; padding:18px 16px 14px; }
+  #chatApp .list { flex:1; overflow-y:auto; padding:18px 16px 90px; }
   #chatApp .list::-webkit-scrollbar { display:none; }
   #chatApp .pill-group { background:var(--bg); border:1.5px solid #eaeaea; border-radius:26px; overflow:hidden; }
   #chatApp .cell { display:flex; align-items:center; gap:12px; padding:13px 16px; cursor:pointer; position:relative; overflow:hidden; }
@@ -179,7 +190,7 @@
   #chatApp .chat .chat-wallpaper { position:absolute; inset:0; z-index:0; background:center/cover no-repeat; pointer-events:none; }
   #chatApp .chat .msgs { position:relative; z-index:1; }
   #chatApp .chat .input-bar { position:relative; z-index:2; }
-  #chatApp .msgs { flex:1; overflow-y:auto; padding:158px 14px 16px; display:flex; flex-direction:column; gap:16px; }
+  #chatApp .msgs { flex:1; overflow-y:auto; padding:158px 14px 40px; display:flex; flex-direction:column; gap:16px; }
   #chatApp .msgs::-webkit-scrollbar { display:none; }
   #chatApp .msg-load-more { display:flex; align-items:center; gap:10px; margin:0 0 10px; cursor:pointer; color:var(--ink2); transition:opacity .2s; }
   #chatApp .msg-load-more:active { opacity:0.6; }
@@ -187,12 +198,25 @@
   #chatApp .msg-load-more .txt { font-size:11px; font-weight:600; letter-spacing:0.5px; opacity:0.8; }
   #chatApp .time-tip { text-align:center; font-size:9px; color:var(--ink2); }
   #chatApp .row { display:flex; gap:10px; align-items:flex-start; }
-  #chatApp .row .ava { width:38px; height:38px; border-radius:13px; background:#f0f0f0 center/cover; overflow:hidden; flex-shrink:0; }
+  #chatApp .row .ava { width:38px; height:38px; border-radius:50%; background:#f0f0f0 center/cover; overflow:hidden; flex-shrink:0; }
   #chatApp .row { display:flex; gap:10px; align-items:center; }
-  #chatApp .row .bubble { max-width:66%; padding:8px 13px; font-size:13.5px; line-height:1.45; word-break:break-word; font-family:system-ui,-apple-system,sans-serif !important; position:relative; border-radius:13px; }
+  #chatApp .row .bubble { max-width:66%; padding:6px 13px; font-size:13.5px; line-height:1.45; word-break:break-word; font-family:system-ui,-apple-system,sans-serif !important; position:relative; border-radius:13px; }
   #chatApp .row.you .bubble { background:#fff; color:#555; border:1px solid #e2e2e2; }
   #chatApp .row.me { flex-direction:row-reverse; }
-  #chatApp .row.me .bubble { background:#d6e9fa; color:#33556e; border:1px solid #7fb6e6; }
+  #chatApp .row.me .bubble { background:#ece5f5; color:#42335e; border:1px solid #d0c0e8; }
+  #chatApp .bilingual-split { display:flex; flex-direction:column; }
+  #chatApp .bilingual-split .en { font-size:14px; font-weight:500; color:inherit; margin-bottom:8px; line-height:1.5; }
+  #chatApp .bilingual-split .divider { height:1px; background:repeating-linear-gradient(to right, currentColor 0, currentColor 4px, transparent 4px, transparent 8px); opacity:0.2; margin-bottom:8px; }
+  #chatApp .bilingual-split .zh { font-size:13px; color:inherit; opacity:0.8; line-height:1.4; }
+  
+  #chatApp .msg-chk { width:22px; height:22px; border-radius:50%; border:1.5px solid #ccc; flex-shrink:0; position:relative; margin-top:auto; margin-bottom:auto; cursor:pointer; transition:0.2s; }
+  #chatApp .msg-chk.on { background:#1a1a1a; border-color:#1a1a1a; }
+  #chatApp .msg-chk.on::after { content:""; position:absolute; left:7px; top:3px; width:5px; height:10px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); }
+  #chatApp .select-bar { flex-shrink:0; background:#fff; padding:15px 20px 30px; display:none; justify-content:space-between; align-items:center; z-index:10; box-shadow:0 -4px 15px rgba(0,0,0,0.05); }
+  #chatApp .select-bar.show { display:flex; animation:msgUp .2s ease; }
+  #chatApp .sb-cancel { font-size:15px; color:#555; cursor:pointer; }
+  #chatApp .sb-del { font-size:15px; color:#c0564e; font-weight:600; cursor:pointer; }
+  #chatApp .chat.select-mode .input-bar { display:none !important; }
   #chatApp .row.msg-in { animation:msgUp .4s var(--ease); }
   @keyframes msgUp { from{opacity:0; transform:translateY(14px);} to{opacity:1; transform:none;} }
 
@@ -253,7 +277,7 @@
   #chatApp .sp-row .tg-switch.on .tg-knob{left:18.5px;}
 
   #chatApp .input-bar { flex-shrink:0; margin:0 12px 10px; padding:4px 4px 4px 12px; display:flex; flex-wrap:wrap; align-items:center; column-gap:10px; row-gap:0; position:relative;
-    background:#fff; border-radius:26px; box-shadow:0 8px 20px rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.02); transition:margin-bottom 0.3s ease; }
+    background:#fff; border-radius:26px; box-shadow:0 8px 20px rgba(0,0,0,0.06); border:1px solid rgba(0,0,0,0.08); transition:margin-bottom 0.3s ease; }
   body.is-fullscreen #chatApp .input-bar { margin-bottom: 25px; }
   #chatApp .input-bar .ic { color:#888; cursor:pointer; display:flex; align-items:center; justify-content:center; position:relative; z-index:1; }
   #chatApp .input-bar .wrap { flex:1; display:flex; align-items:center; position:relative; z-index:1; }
@@ -279,13 +303,13 @@
   #chatApp .input-bar .foot-handle:active { transform:scale(.85); }
   #chatApp .input-bar.foot-hide .foot-handle { display:flex; }
 
-  #chatApp .tabbar { flex-shrink:0; margin:0 0 21px; padding:0; background:none; border:none; border-radius:0; display:flex; justify-content:center; gap:16px; position:relative; z-index:100; transition: margin-bottom 0.3s ease; }
-  body.is-fullscreen #chatApp .tabbar { margin-bottom: 25px; }
-  #chatApp .tab { width:50px; height:50px; border-radius:50%; background:#fff; border:2px solid rgba(0,0,0,.1); color:var(--ink2); display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; box-shadow:0 4px 8px rgba(0,0,0,.06); transition:all .4s var(--ease); font-size:0; }
+  #chatApp .tabbar { position:absolute; bottom:21px; left:0; right:0; padding:0; background:none; border:none; display:flex; justify-content:center; gap:16px; z-index:800; pointer-events:none; transition: bottom 0.3s ease; }
+  body.is-fullscreen #chatApp .tabbar { bottom: 35px; }
+  #chatApp .tab { pointer-events:auto; width:50px; height:50px; border-radius:50%; background:#fff; border:2px solid rgba(0,0,0,.1); color:var(--ink2); display:flex; align-items:center; justify-content:center; cursor:pointer; position:relative; box-shadow:0 6px 16px rgba(0,0,0,.15); transition:all .4s var(--ease); font-size:0; }
   #chatApp .tab:active { transform:scale(.9); }
   #chatApp .tab .ti { display:flex; width:22px; height:22px; align-items:center; justify-content:center; }
   #chatApp .tab .ti svg { width:100%; height:100%; }
-  #chatApp .tab.on { background:var(--ink); border:2px solid var(--ink); color:#fff; transform:translateY(-8px); box-shadow:0 6px 14px rgba(0,0,0,.12); }
+  #chatApp .tab.on { background:var(--ink); border:2px solid var(--ink); color:#fff; transform:translateY(-8px); box-shadow:0 8px 20px rgba(0,0,0,.25); }
   #chatApp .tab.on:active { transform:translateY(-4px) scale(.9); }
 
   /* ===== 设置面板（分页手账风） ===== */
@@ -490,6 +514,127 @@
   #chatApp .foot button { flex:1; padding:12px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit; border-radius:2px; }
   #chatApp .foot .g { background:#fff; border:2px solid var(--ink); color:var(--ink); }
   #chatApp .foot .s { background:var(--ink); border:2px solid var(--ink); color:#fff; }
+
+  /* ================= 新增：我的名片与新联系人视图 ================= */
+  #chatApp .dark-bg { position:absolute; inset:0; background-size:cover; background-position:center; opacity:0.7; z-index:1; }
+  #chatApp .gradient-top { position:absolute; top:0; left:0; right:0; height:40%; z-index:2; background:linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(255,255,255,0.8) 25%, rgba(255,255,255,0) 100%); }
+  #chatApp .gradient-bottom { position:absolute; bottom:0; left:0; right:0; height:65%; z-index:2; background:linear-gradient(to top, rgba(0,0,0,1) 0%, rgba(0,0,0,0.9) 45%, rgba(0,0,0,0) 100%); }
+
+  #chatApp .my-card-view { position:absolute; inset:0; display:none; flex-direction:column; z-index:40; background:#000; transition:transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.4s; }
+  #chatApp .my-card-view.show { display:flex; }
+  #chatApp .my-card-view.hide-scale { transform:scale(0.95); opacity:0; pointer-events:none; }
+  #chatApp .mc-header { position:relative; z-index:10; padding:60px 20px 10px; display:flex; justify-content:center; }
+  body.is-fullscreen #chatApp .mc-header { padding-top: 105px; }
+  #chatApp .mc-header .title { font-size:16px; font-weight:700; letter-spacing:2px; color:#111; text-transform:uppercase; }
+  #chatApp .mc-stage { position:relative; z-index:10; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; margin-top:-40px; }
+  #chatApp .float-btn { position:absolute; display:flex; flex-direction:column; align-items:center; gap:8px; cursor:pointer; transition:transform 0.2s; z-index:5; animation:floatAnim 4s ease-in-out infinite alternate; }
+  #chatApp .float-btn:active { transform:scale(0.9) !important; }
+  #chatApp .float-btn .f-icon { width:56px; height:56px; border-radius:50%; background:rgba(255,255,255,0.15); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.3); box-shadow:0 10px 25px rgba(0,0,0,0.3); display:flex; align-items:center; justify-content:center; color:#fff; }
+  #chatApp .float-btn .f-icon svg { width:24px; height:24px; stroke-width:1.5; }
+  #chatApp .float-btn span { font-size:11px; font-weight:600; color:#fff; letter-spacing:1px; text-shadow:0 2px 4px rgba(0,0,0,0.8); text-transform:uppercase; }
+  #chatApp .fb-chat { transform:translate(-100px, -120px); animation-delay:0s; }
+  #chatApp .fb-call { transform:translate(100px, -120px); animation-delay:-1s; }
+  #chatApp .fb-info { transform:translate(-100px, 120px); animation-delay:-2s; }
+  #chatApp .fb-set  { transform:translate(100px, 120px); animation-delay:-3s; }
+  @keyframes floatAnim { 0% { margin-top:0px; } 100% { margin-top:-12px; } }
+  #chatApp .mc-avatar-wrap { position:relative; width:130px; height:130px; border-radius:50%; border:4px solid #fff; box-shadow:0 20px 40px rgba(0,0,0,0.4); background:url('https://i.postimg.cc/26RTf7QD/image-download-1772630149759.jpg') center/cover; cursor:pointer; transition:transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1); z-index:10; }
+  #chatApp .mc-avatar-wrap:active { transform:scale(0.94); }
+  #chatApp .star-badge { position:absolute; right:0; bottom:0; width:36px; height:36px; background:#111; border-radius:50%; border:3px solid #fff; display:flex; align-items:center; justify-content:center; color:#fff; box-shadow:0 4px 10px rgba(0,0,0,0.3); }
+  #chatApp .star-badge svg { width:18px; height:18px; fill:currentColor; }
+  #chatApp .mc-name { margin-top:24px; font-size:28px; font-weight:800; letter-spacing:1px; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,0.5); z-index:10; }
+  #chatApp .mc-status { margin-top:6px; font-size:13px; color:rgba(255,255,255,0.7); font-weight:500; z-index:10; }
+
+  #chatApp .new-list-view { position:absolute; inset:0; background:#fff; color:#111; z-index:50; display:none; flex-direction:column; transform:translateX(100%); transition:transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  #chatApp .new-list-view.show { display:flex; transform:translateX(0); }
+  #chatApp .l-header { padding:50px 20px 10px; display:flex; align-items:center; gap:16px; }
+  body.is-fullscreen #chatApp .l-header { padding-top: 95px; }
+  #chatApp .l-header .back-btn { width:36px; height:36px; border-radius:50%; background:#f0f0f2; display:flex; align-items:center; justify-content:center; cursor:pointer; color:#111; }
+  #chatApp .l-header .back-btn:active { background:#e0e0e0; }
+  #chatApp .l-header .title { font-size:28px; font-weight:800; letter-spacing:0.5px; flex:1; }
+  #chatApp .l-header .add-btn { color:#007aff; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:opacity 0.2s; }
+  #chatApp .l-header .add-btn:active { opacity:0.6; }
+  #chatApp .l-header .add-btn svg { width:28px; height:28px; stroke-width:2; }
+  #chatApp .l-search { padding:10px 20px; }
+  #chatApp .l-search-box { background:#f0f0f2; border-radius:10px; padding:8px 12px; display:flex; align-items:center; gap:8px; color:#888; }
+  #chatApp .l-search-box svg { width:16px; height:16px; }
+  #chatApp .l-search-box input { border:none; background:transparent; outline:none; font-size:15px; width:100%; color:#111; font-family:inherit; }
+  #chatApp .l-scroll { flex:1; overflow-y:auto; padding-bottom:90px; }
+  #chatApp .l-scroll::-webkit-scrollbar { display:none; }
+  #chatApp .l-letter { background:#f9f9f9; padding:4px 20px; font-size:13px; font-weight:700; color:#555; position:sticky; top:0; z-index:2; }
+  #chatApp .l-item { display:flex; align-items:center; padding:10px 20px; cursor:pointer; transition:background 0.2s; }
+  #chatApp .l-item:active { background:#f0f0f0; }
+  #chatApp .l-item .ava { width:44px; height:44px; border-radius:50%; background-size:cover; background-position:center; flex-shrink:0; }
+  #chatApp .l-item .info { flex:1; margin-left:14px; border-bottom:1px solid #f0f0f0; padding:14px 0; }
+  #chatApp .l-item:last-child .info { border-bottom:none; }
+  #chatApp .l-item .name { font-size:16px; font-weight:600; color:#111; }
+  #chatApp .l-item .sub { font-size:13px; color:#888; margin-top:2px; }
+
+  #chatApp .contact-card-view { position:absolute; inset:0; display:none; flex-direction:column; background:#000; z-index:60; transform:translateX(100%); transition:transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  #chatApp .contact-card-view.show { display:flex; transform:translateX(0); }
+  #chatApp .cc-header { position:relative; z-index:10; padding:50px 20px 10px; display:flex; justify-content:space-between; align-items:center; }
+  body.is-fullscreen #chatApp .cc-header { padding-top: 95px; }
+  #chatApp .cc-header .back-btn { width:36px; height:36px; border-radius:50%; background:rgba(0,0,0,0.06); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:0.2s; color:#111; }
+  #chatApp .cc-header .back-btn:active { background:rgba(0,0,0,0.15); }
+  #chatApp .cc-header .more-btn { color:#111; font-size:20px; font-weight:bold; letter-spacing:2px; line-height:1; cursor:pointer; }
+  #chatApp .cc-center { position:relative; z-index:10; flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; margin-top:-20px; }
+  #chatApp .cc-avatar-wrap { width:120px; height:120px; border-radius:50%; border:4px solid #fff; box-shadow:0 15px 35px rgba(0,0,0,0.3); background-size:cover; background-position:center; }
+  #chatApp .cc-name { margin-top:16px; font-size:26px; font-weight:700; letter-spacing:1px; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,0.5); }
+  #chatApp .cc-status { margin-top:6px; font-size:12px; color:rgba(255,255,255,0.7); display:flex; align-items:center; gap:6px; font-weight:500; }
+  #chatApp .cc-status .dot { width:6px; height:6px; border-radius:50%; box-shadow:0 0 8px #4cd964; }
+  #chatApp .cc-bottom { position:relative; z-index:10; padding:0 20px 90px; display:flex; flex-direction:column; gap:14px; }
+  #chatApp .cc-tags { display:flex; gap:10px; justify-content:center; }
+  #chatApp .cc-tag { background:rgba(255,255,255,0.1); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.2); border-radius:4px; padding:10px 0; color:#fff; font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase; flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; cursor:pointer; transition:0.2s; }
+  #chatApp .cc-tag:active { transform:scale(0.95); background:rgba(255,255,255,0.2); }
+  #chatApp .cc-tag svg { width:20px; height:20px; stroke-width:1.5; }
+  #chatApp .cc-list { background:rgba(255,255,255,0.06); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,0.1); border-radius:4px; }
+  #chatApp .cc-item { padding:14px 16px; display:flex; align-items:center; gap:14px; border-bottom:1px solid rgba(255,255,255,0.06); cursor:pointer; color:#fff; }
+  #chatApp .cc-item:last-child { border-bottom:none; }
+  #chatApp .cc-item:active { background:rgba(255,255,255,0.12); }
+  #chatApp .cc-item .icon { width:26px; height:26px; background:rgba(255,255,255,0.1); border-radius:4px; display:flex; align-items:center; justify-content:center; }
+  #chatApp .cc-item .icon svg { width:14px; height:14px; }
+  #chatApp .cc-item .text { flex:1; font-size:14px; font-weight:500; letter-spacing:0.5px; }
+  #chatApp .cc-item .arr { opacity:0.4; }
+  #chatApp .chat-capsule { background:#111; color:#fff; border-radius:50px; padding:14px 20px; display:flex; align-items:center; justify-content:center; gap:8px; font-size:16px; font-weight:600; letter-spacing:0.5px; border:1px solid rgba(255,255,255,0.15); box-shadow:0 8px 24px rgba(0,0,0,0.4); cursor:pointer; margin-top:10px; transition:transform 0.2s; }
+  #chatApp .chat-capsule:active { transform:scale(0.96); }
+  #chatApp .chat-capsule svg { width:20px; height:20px; stroke-width:2; }
+
+  #chatApp .mask-overlay { position:absolute; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); z-index:100; display:none; align-items:center; justify-content:center; opacity:0; transition:opacity 0.3s ease; }
+  #chatApp .mask-overlay.show { display:flex; opacity:1; }
+  #chatApp .mask-modal { width:85%; max-height:80vh; background:#fff; border-radius:24px; padding:24px 20px; transform:scale(0.9); transition:transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); display:flex; flex-direction:column; box-shadow:0 20px 50px rgba(0,0,0,0.3); }
+  #chatApp .mask-overlay.show .mask-modal { transform:scale(1); }
+  #chatApp .ms-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+  #chatApp .ms-header .ms-title { font-size:18px; font-weight:800; color:#111; display:flex; align-items:center; gap:8px; }
+  #chatApp .ms-header .ms-close { width:30px; height:30px; background:#f0f0f0; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:bold; color:#555; cursor:pointer; }
+  #chatApp .ms-list { flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:12px; margin-bottom:20px; }
+  #chatApp .ms-list::-webkit-scrollbar { display:none; }
+  #chatApp .ms-item { padding:16px; border:1.5px solid #eee; border-radius:12px; display:flex; align-items:center; gap:14px; cursor:pointer; transition:all 0.2s; }
+  #chatApp .ms-item.active { border-color:#111; background:#fafafa; }
+  #chatApp .ms-item:active { transform:scale(0.98); }
+  #chatApp .ms-icon { width:42px; height:42px; background:rgba(0,0,0,0.04); border-radius:12px; display:flex; align-items:center; justify-content:center; color:#555; transition:all 0.2s; }
+  #chatApp .ms-item.active .ms-icon { background:#111; color:#fff; box-shadow:0 4px 10px rgba(0,0,0,0.2); }
+  #chatApp .ms-icon svg { width:20px; height:20px; stroke-width:1.8; }
+  #chatApp .ms-info { flex:1; }
+  #chatApp .ms-name { font-size:15px; font-weight:700; color:#111; margin-bottom:4px; }
+  #chatApp .ms-desc { font-size:12px; color:#888; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+  #chatApp .ms-check { width:20px; height:20px; border-radius:50%; border:1.5px solid #ccc; display:flex; align-items:center; justify-content:center; }
+  #chatApp .ms-item.active .ms-check { background:#111; border-color:#111; }
+  #chatApp .ms-item.active .ms-check::after { content:''; width:5px; height:9px; border:solid #fff; border-width:0 2px 2px 0; transform:rotate(45deg); margin-top:-2px; }
+  #chatApp .ms-add-btn { width:100%; padding:16px; border:1.5px dashed #ccc; border-radius:12px; background:transparent; font-size:14px; font-weight:600; color:#555; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px; }
+  #chatApp .ms-add-btn:active { background:#f9f9f9; }
+  #chatApp .ms-form { display:none; flex-direction:column; gap:12px; animation:fadeIn 0.3s; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+  #chatApp .ms-form input { width:100%; padding:14px 16px; border:1.5px solid #eee; border-radius:10px; font-size:14px; outline:none; box-sizing:border-box; font-family:inherit; }
+  #chatApp .ms-form input:focus { border-color:#111; }
+  #chatApp .ms-form textarea { width:100%; padding:14px 16px; border:1.5px solid #eee; border-radius:10px; font-size:13px; outline:none; height:120px; resize:none; box-sizing:border-box; font-family:inherit; line-height:1.6; }
+  #chatApp .ms-form textarea:focus { border-color:#111; }
+  #chatApp .ms-actions { display:flex; gap:10px; margin-top:10px; }
+  #chatApp .ms-actions button { flex:1; padding:14px; border-radius:10px; font-size:14px; font-weight:600; cursor:pointer; border:none; font-family:inherit; }
+  #chatApp .ms-btn-cancel { background:#f0f0f0; color:#555; }
+  #chatApp .ms-btn-save { background:#111; color:#fff; }
+
+  /* ================= 夜间模式 ================= */
+  #chatApp.dark-mode { filter: invert(0.92) hue-rotate(180deg) saturate(1.3) brightness(1.05); }
+  #chatApp.dark-mode img, #chatApp.dark-mode .ava, #chatApp.dark-mode .head-ava, #chatApp.dark-mode .me-ava, #chatApp.dark-mode .pr-ava, #chatApp.dark-mode .mc-avatar-wrap, #chatApp.dark-mode .cc-avatar-wrap, #chatApp.dark-mode .dark-bg, #chatApp.dark-mode .chat-wallpaper { filter: invert(1) hue-rotate(180deg) contrast(1.1) brightness(0.9) saturate(0.8); }
   `;
 
   const HTML = `
@@ -513,11 +658,6 @@
     <div class="search"><div class="box"><svg class="ic-svg" width="14" height="14" viewBox="0 0 24 24"><circle class="ln" cx="10.5" cy="10.5" r="6"/><path class="ln" d="M15 15l4 4"/></svg>搜索<small>Search</small></div></div>
     <div class="grp-tabs" id="caGrpTabs"></div>
     <div class="list" id="caListBody"></div>
-    <div class="tabbar">
-      <div class="tab on"><span class="ti"><svg class="ic-svg" width="22" height="22" viewBox="0 0 24 24"><path class="ln" d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><path class="ln" d="M9 12h.01M12 12h.01M15 12h.01"/></svg></span>Chats</div>
-      <div class="tab"><span class="ti"><svg class="ic-svg" width="22" height="22" viewBox="0 0 24 24"><path class="ln" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle class="ln" cx="9" cy="7" r="4"/><path class="ln" d="M23 21v-2a4 4 0 0 0-3-3.87"/><path class="ln" d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Contacts</div>
-      <div class="tab"><span class="ti"><svg class="ic-svg" width="22" height="22" viewBox="0 0 24 24"><path class="ln" d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line class="ln" x1="16" y1="8" x2="2" y2="22"/><line class="ln" x1="17.5" y1="15" x2="9" y2="15"/></svg></span>Moments</div>
-    </div>
   </div>
 
   <div class="chat" id="caViewChat">
@@ -531,6 +671,10 @@
       <span class="right"><span id="caChatSet"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><path class="ln" d="M5 8h14M5 12h14M5 16h14"/></svg></span></span>
     </div>
     <div class="msgs" id="caMsgs"></div>
+    <div class="select-bar" id="caSelectBar">
+      <div class="sb-cancel" id="caSelectCancel">取消</div>
+      <div class="sb-del" id="caSelectDel">删除 (1)</div>
+    </div>
     <div class="input-bar" id="caInputBar">
       <div class="ib-stars">
         <svg class="s" style="width:21px;height:21px;top:6px;left:5%;transform:rotate(12deg);" viewBox="0 0 100 100"><rect width="100" height="100" fill="url(#chatDots)" clip-path="url(#chatStarClip)"/></svg>
@@ -613,6 +757,7 @@
           <div class="sp-sec"><span class="dot"></span><span class="tx">消息</span><span class="en">messages</span><span class="lf"></span></div>
           <div class="sp-grp">
             <div class="sp-row" id="caRowTime"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><circle class="ln" cx="12" cy="12" r="7.5"/><path class="ln" d="M12 8v4l3 2"/></svg></span><span class="sl"><div class="n">感知时间</div><div class="d">让 AI 知道当前时间</div></span><span class="tg-switch" id="caRowTimeSwitch"><span class="tg-knob"></span></span></div>
+            <div class="sp-row" id="caRowBilingual"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><path class="ln" d="m5 8 6 6"/><path class="ln" d="m4 14 6-6 2-3"/><path class="ln" d="M2 5h12"/><path class="ln" d="M7 2h1"/><path class="ln" d="m22 22-5-10-5 10"/><path class="ln" d="M14 18h6"/></svg></span><span class="sl"><div class="n">双语翻译</div><div class="d">回复时同时输出原文和中文</div></span><span class="tg-switch" id="caRowBilingualSwitch"><span class="tg-knob"></span></span></div>
             <div class="sp-row"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><path class="ln" d="M12 4.5l2.2 4.5 5 .7-3.6 3.5.85 5L12 15.9 7.55 18.2l.85-5L4.8 9.7l5-.7z"/></svg></span><span class="sl"><div class="n">星标消息</div><div class="d">收藏的重要内容</div></span><span class="arr"><svg class="ic-svg" width="17" height="17" viewBox="0 0 24 24"><path class="ln" d="M9 6l6 6-6 6"/></svg></span></div>
             <div class="sp-row"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><path class="ln" d="M6 10a6 6 0 0 1 12 0c0 4 1.2 5 1.8 5.6H4.2C4.8 15 6 14 6 10z"/><path class="ln" d="M10 18.5a2 2 0 0 0 4 0"/></svg></span><span class="sl"><div class="n">消息通知</div><div class="d">提醒与免打扰</div></span><span class="arr"><svg class="ic-svg" width="17" height="17" viewBox="0 0 24 24"><path class="ln" d="M9 6l6 6-6 6"/></svg></span></div>
           </div>
@@ -732,6 +877,101 @@
       </div>
     </div>
   </div>
+
+  <!-- ================= 新增：我的名片视图 ================= -->
+  <div class="my-card-view" id="caMyCardView">
+    <div class="dark-bg" style="background-image: url('${DA}');"></div>
+    <div class="gradient-top"></div>
+    <div class="gradient-bottom"></div>
+    <div class="mc-header"><div class="title">My Profile</div></div>
+    <div class="mc-stage">
+      <div class="float-btn fb-chat" id="caBtnToNewList">
+        <div class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+        <span>Chat</span>
+      </div>
+      <div class="float-btn fb-call">
+        <div class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7 12.4 12.4 0 0 0 .6 2.6 2 2 0 0 1-.4 2.1L8 9.7a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4 12.4 12.4 0 0 0 2.6.6 2 2 0 0 1 1.7 2z"/></svg></div>
+        <span>Call</span>
+      </div>
+      <div class="float-btn fb-info">
+        <div class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg></div>
+        <span>Info</span>
+      </div>
+      <div class="float-btn fb-set" id="caBtnToSettings">
+        <div class="f-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></div>
+        <span>Setting</span>
+      </div>
+      <div class="mc-avatar-wrap" id="caMyAvatarBtn">
+        <div class="star-badge"><svg viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></div>
+      </div>
+      <div class="mc-name">User</div>
+      <div class="mc-status">Tap avatar to change mask</div>
+    </div>
+  </div>
+
+  <!-- ================= 新增：全屏白底联系人列表 ================= -->
+  <div class="new-list-view" id="caNewListView">
+    <div class="l-header">
+      <div class="back-btn" id="caNewListBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <div class="title">Contacts</div>
+      <div class="add-btn" id="caNewListAdd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></div>
+    </div>
+    <div class="l-search">
+      <div class="l-search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" placeholder="Search"></div>
+    </div>
+    <div class="l-scroll" id="caNewListScroll"></div>
+  </div>
+
+  <!-- ================= 新增：联系人名片页 ================= -->
+  <div class="contact-card-view" id="caContactCardView">
+    <div class="dark-bg" id="ccCardBg"></div>
+    <div class="gradient-top"></div>
+    <div class="gradient-bottom"></div>
+    <div class="cc-header">
+      <div class="back-btn" id="ccCardBack"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></div>
+      <div class="more-btn">...</div>
+    </div>
+    <div class="cc-center">
+      <div class="cc-avatar-wrap" id="ccCardAvatar"></div>
+      <div class="cc-name" id="ccCardName">Name</div>
+      <div class="cc-status"><span class="dot" id="ccCardDot"></span> <span id="ccCardStatus">Status</span></div>
+    </div>
+    <div class="cc-bottom">
+      <div class="cc-tags">
+        <div class="cc-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Chat</span></div>
+        <div class="cc-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7 12.4 12.4 0 0 0 .6 2.6 2 2 0 0 1-.4 2.1L8 9.7a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4 12.4 12.4 0 0 0 2.6.6 2 2 0 0 1 1.7 2z"/></svg><span>Call</span></div>
+        <div class="cc-tag"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg><span>Info</span></div>
+      </div>
+      <div class="cc-list">
+        <div class="cc-item" id="ccBtnPersona"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div><div class="text">Contact Persona</div><div class="arr"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div></div>
+        <div class="cc-item"><div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg></div><div class="text">Media Gallery</div><div class="arr"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg></div></div>
+      </div>
+      <div class="chat-capsule" id="ccBtnChat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>Message</div>
+    </div>
+  </div>
+
+  <!-- ================= 全局底部 Tabbar ================= -->
+  <div class="tabbar" id="caTabbar">
+    <div class="tab on"><span class="ti"><svg class="ic-svg" width="22" height="22" viewBox="0 0 24 24"><path class="ln" d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/><path class="ln" d="M9 12h.01M12 12h.01M15 12h.01"/></svg></span>Chats</div>
+    <div class="tab"><span class="ti"><svg class="ic-svg" width="22" height="22" viewBox="0 0 24 24"><path class="ln" d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle class="ln" cx="9" cy="7" r="4"/><path class="ln" d="M23 21v-2a4 4 0 0 0-3-3.87"/><path class="ln" d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Contacts</div>
+    <div class="tab"><span class="ti"><svg class="ic-svg" width="22" height="22" viewBox="0 0 24 24"><path class="ln" d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line class="ln" x1="16" y1="8" x2="2" y2="22"/><line class="ln" x1="17.5" y1="15" x2="9" y2="15"/></svg></span>Moments</div>
+  </div>
+
+  <!-- ================= 新增：面具系统 Modal ================= -->
+  <div class="mask-overlay" id="caMaskOverlay">
+    <div class="mask-modal">
+      <div class="ms-header"><div class="ms-title"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="2"/><path d="M12 7v4"/><line x1="8" y1="16" x2="8" y2="16"/><line x1="16" y1="16" x2="16" y2="16"/></svg>我的面具</div><div class="ms-close" id="caMaskClose">✕</div></div>
+      <div id="caMaskListView">
+        <div class="ms-list" id="caMaskList"></div>
+        <button class="ms-add-btn" id="caMaskAddBtn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>新建面具</button>
+      </div>
+      <div class="ms-form" id="caMaskFormView">
+        <input type="text" placeholder="面具名称 (如: 傲娇学妹)" id="caNewMaskName">
+        <textarea placeholder="输入 User 人设提示词，将注入到聊天上下文中..." id="caNewMaskPrompt"></textarea>
+        <div class="ms-actions"><button class="ms-btn-cancel" id="caMaskCancelBtn">取消</button><button class="ms-btn-save" id="caMaskSaveBtn">保存</button></div>
+      </div>
+    </div>
+  </div>
   `;
 
   function init() {
@@ -767,6 +1007,7 @@
       _sel = (await cdbGet('promptSel')) || 'locked';
       const cr = await cdbGet('ctxRounds'); _ctxRounds = (typeof cr==='number') ? cr : 10;
       _timeAware = (await cdbGet('timeAware')) === true;
+      _bilingual = (await cdbGet('bilingual')) === true;
     }
 
     const dispName = c => c.note || c.nm;
@@ -863,8 +1104,26 @@
       applyWallpaper(c);
       renderMsgs();
       viewList.style.display='none'; viewChat.classList.add('show');
+      const tb = $('#caTabbar'); if(tb) tb.style.display = 'none';
     }
     let _lastCount = 0, _lastId = null;
+    let _selectMode = false;
+    let _selectedMsgs = new Set();
+    
+    const selectBar = $('#caSelectBar');
+    const selectDel = $('#caSelectDel');
+    function renderSelectBar() {
+      if (_selectMode) {
+        selectBar.classList.add('show');
+        viewChat.classList.add('select-mode');
+        selectDel.textContent = `删除 (${_selectedMsgs.size})`;
+        selectDel.style.opacity = _selectedMsgs.size > 0 ? '1' : '0.5';
+      } else {
+        selectBar.classList.remove('show');
+        viewChat.classList.remove('select-mode');
+      }
+    }
+
     function renderMsgs(keepScroll) {
       if (!current) return;
       const log = current.log || [];
@@ -887,10 +1146,23 @@
 
       html += displayLog.map((m, relativeIdx) => {
         const i = startIndex + relativeIdx;
-        const anim = i>=prev ? ' msg-in' : '';
+        const anim = i>=prev && !_selectMode ? ' msg-in' : '';
+        const chk = _selectMode ? `<div class="msg-chk ${_selectedMsgs.has(i)?'on':''}"></div>` : '';
         if(m.t==='time') return `<div class="time-tip">${m.v}</div>`;
-        if(m.s==='me') return `<div class="row me${anim}" data-idx="${i}"><div class="ava" style="background-image:url('${DA}')"></div><div class="bubble">${m.v}</div></div>`;
-        return `<div class="row you${anim}" data-idx="${i}"><div class="ava" style="background-image:url('${current.avaImg||DA}')"></div><div class="bubble">${m.v}</div></div>`;
+        
+        let content = m.v;
+        if ((content.includes('[RAW]') || content.includes('[EN]')) && content.includes('[ZH]')) {
+          const rawMatch = content.match(/\[(?:RAW|EN)\]([\s\S]*?)\[ZH\]/);
+          const zhMatch = content.match(/\[ZH\]([\s\S]*)$/);
+          if (rawMatch && zhMatch) {
+            const rawText = rawMatch[1].trim();
+            const zhText = zhMatch[1].trim();
+            content = `<div class="bilingual-split"><div class="en">${rawText}</div><div class="divider"></div><div class="zh">${zhText}</div></div>`;
+          }
+        }
+        
+        if(m.s==='me') return `<div class="row me${anim}" data-idx="${i}"><div class="ava" style="background-image:url('${DA}')"></div><div class="bubble">${content}</div>${chk}</div>`;
+        return `<div class="row you${anim}" data-idx="${i}">${chk}<div class="ava" style="background-image:url('${current.avaImg||DA}')"></div><div class="bubble">${content}</div></div>`;
       }).join('');
 
       msgs.innerHTML = html;
@@ -912,7 +1184,21 @@
         msgs.scrollTop = msgs.scrollHeight;
       }
     }
-    function exitChat(){ viewChat.classList.remove('show'); viewList.style.display='flex'; }
+    function exitChat(){ 
+      viewChat.classList.remove('show'); 
+      const tb = $('#caTabbar'); if(tb) tb.style.display = 'flex';
+      let activeIdx = 0;
+      const tabs = app.querySelectorAll('.tabbar .tab');
+      if(tabs.length) {
+        tabs.forEach((t, i) => { if(t.classList.contains('on')) activeIdx = i; });
+      }
+      if (activeIdx === 0) {
+        viewList.style.display='flex';
+      } else if (activeIdx === 1) {
+        const mcv = $('#caMyCardView');
+        if(mcv) { mcv.classList.add('show'); mcv.classList.remove('hide-scale'); }
+      }
+    }
     $('#caBack').addEventListener('click', exitChat);
 
     /* 聊天设置面板 */
@@ -1127,8 +1413,15 @@
     function renderRowTime(){ if(rowTimeSwitch) rowTimeSwitch.classList.toggle('on', getTimeAware()); }
     const rowTime=$('#caRowTime');
     if(rowTime) rowTime.addEventListener('click', ()=>{ setTimeAware(!getTimeAware()); renderRowTime(); });
+
+    /* 设置面板「双语翻译」行内开关 */
+    const rowBilingualSwitch=$('#caRowBilingualSwitch');
+    function renderRowBilingual(){ if(rowBilingualSwitch) rowBilingualSwitch.classList.toggle('on', getBilingual()); }
+    const rowBilingual=$('#caRowBilingual');
+    if(rowBilingual) rowBilingual.addEventListener('click', ()=>{ setBilingual(!getBilingual()); renderRowBilingual(); });
+
     /* 打开设置面板时同步开关状态 */
-    $('#caChatSet').addEventListener('click', renderRowTime);
+    $('#caChatSet').addEventListener('click', () => { renderRowTime(); renderRowBilingual(); });
 
     /* 发送：只把我的消息存下，不自动请求 AI */
     const field = $('#caField'), inputBar = $('#caInputBar');
@@ -1246,7 +1539,13 @@
       closeMsgMenu();
       if(!current) return;
       const log=current.log||[]; const m=log[idx]; if(!m) return;
-      if(act==='delete'){ log.splice(idx,1); renderMsgs(); renderList(); saveGroups(); }
+      if(act==='delete'){ 
+        _selectMode = true; 
+        _selectedMsgs.clear(); 
+        _selectedMsgs.add(idx); 
+        renderMsgs(true); 
+        renderSelectBar();
+      }
       else if(act==='reply' || act==='quote'){
         const raw=(m.v||'').replace(/\n/g,' ');
         const t=raw.slice(0,30)+(raw.length>30?'…':'');
@@ -1256,6 +1555,9 @@
         const row=msgs.querySelector('.row[data-idx="'+idx+'"]'); if(!row) return;
         const bub=row.querySelector('.bubble'); if(!bub) return;
         bub.classList.add('editing');
+        if (m.v.includes('[RAW]') || m.v.includes('[EN]')) {
+          bub.textContent = m.v;
+        }
         bub.setAttribute('contenteditable','true'); bub.focus(); placeCaretEnd(bub);
         const onBlur=()=>{ m.v=bub.textContent.trim(); bub.removeAttribute('contenteditable'); bub.classList.remove('editing'); bub.removeEventListener('blur',onBlur); renderMsgs(true); renderList(); saveGroups(); };
         bub.addEventListener('blur', onBlur);
@@ -1283,6 +1585,39 @@
       e.preventDefault();
       const idx=+row.dataset.idx; const isMe=row.classList.contains('me'); const bub=row.querySelector('.bubble'); if(!bub) return;
       showMsgMenu(idx,isMe,bub.getBoundingClientRect());
+    });
+
+    msgs.addEventListener('click', e => {
+      if (_selectMode) {
+        const row = e.target.closest('.row');
+        if (row && row.dataset.idx) {
+          const idx = +row.dataset.idx;
+          if (_selectedMsgs.has(idx)) _selectedMsgs.delete(idx);
+          else _selectedMsgs.add(idx);
+          renderMsgs(true);
+          renderSelectBar();
+        }
+      }
+    });
+
+    $('#caSelectCancel').addEventListener('click', () => {
+      _selectMode = false;
+      _selectedMsgs.clear();
+      renderMsgs(true);
+      renderSelectBar();
+    });
+
+    $('#caSelectDel').addEventListener('click', () => {
+      if (_selectedMsgs.size === 0 || !current) return;
+      const log = current.log || [];
+      const toDelete = Array.from(_selectedMsgs).sort((a,b) => b - a);
+      toDelete.forEach(idx => log.splice(idx, 1));
+      _selectMode = false;
+      _selectedMsgs.clear();
+      renderMsgs(true);
+      renderList();
+      saveGroups();
+      renderSelectBar();
     });
 
     /* 底栏图标行收起 / 展开（状态存储） */
@@ -1363,13 +1698,275 @@
       if (cap && cap.textContent.trim() === 'Chat') openApp();
     });
 
-    /* 底部三大Tab点击交互 */
-    app.querySelectorAll('.tabbar .tab').forEach(t => {
+    /* 底部三大Tab点击交互与视图切换 */
+    const myCardView = $('#caMyCardView');
+
+    /* 夜间模式长按触发 */
+    const tabChats = app.querySelectorAll('.tabbar .tab')[0];
+    let dmTimer = null;
+    tabChats.addEventListener('touchstart', e => {
+      dmTimer = setTimeout(() => {
+        app.classList.toggle('dark-mode');
+        if (typeof buzz === 'function') buzz(20);
+        localStorage.setItem('chatDarkMode', app.classList.contains('dark-mode') ? '1' : '0');
+      }, 600);
+    }, {passive: true});
+    ['touchend', 'touchmove', 'touchcancel'].forEach(ev => tabChats.addEventListener(ev, () => clearTimeout(dmTimer), {passive: true}));
+    tabChats.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      app.classList.toggle('dark-mode');
+      if (typeof buzz === 'function') buzz(20);
+      localStorage.setItem('chatDarkMode', app.classList.contains('dark-mode') ? '1' : '0');
+    });
+    if (localStorage.getItem('chatDarkMode') === '1') {
+      app.classList.add('dark-mode');
+    }
+
+    app.querySelectorAll('.tabbar .tab').forEach((t, idx) => {
       t.addEventListener('click', () => {
         app.querySelectorAll('.tabbar .tab').forEach(x => x.classList.remove('on'));
         t.classList.add('on');
         if (typeof buzz === 'function') buzz(10);
+        
+        if (idx === 0) {
+          viewList.style.display = 'flex';
+          viewChat.classList.remove('show');
+          myCardView.classList.remove('show');
+          newListView.classList.remove('show');
+          contactCardView.classList.remove('show');
+        } else if (idx === 1) {
+          viewList.style.display = 'none';
+          viewChat.classList.remove('show');
+          myCardView.classList.add('show');
+          myCardView.classList.remove('hide-scale');
+          newListView.classList.remove('show');
+          contactCardView.classList.remove('show');
+        } else {
+          viewList.style.display = 'none';
+          myCardView.classList.remove('show');
+        }
       });
+    });
+
+    /* ================= 新增界面逻辑 ================= */
+    const newListView = $('#caNewListView');
+    const newListScroll = $('#caNewListScroll');
+    const contactCardView = $('#caContactCardView');
+    
+    // 我的名片 -> 点击 Chat -> 打开全屏联系人列表
+    $('#caBtnToNewList').addEventListener('click', () => {
+      myCardView.classList.add('hide-scale');
+      newListView.classList.add('show');
+      renderNewList();
+    });
+    
+    // 我的名片 -> 点击 Setting -> 打开设置面板
+    $('#caBtnToSettings').addEventListener('click', () => {
+      syncSetPanel();
+      setPanel.classList.add('show');
+    });
+
+    // 新联系人列表 -> 返回
+    $('#caNewListBack').addEventListener('click', () => {
+      newListView.classList.remove('show');
+      myCardView.classList.remove('hide-scale');
+    });
+    
+    // 新联系人列表 -> 添加
+    $('#caNewListAdd').addEventListener('click', openAdd);
+
+    // 渲染新联系人列表
+    function renderNewList() {
+      let allMembers = [];
+      groups.forEach(g => { allMembers = allMembers.concat(g.members); });
+      const unique = [];
+      const ids = new Set();
+      allMembers.forEach(m => { if(!ids.has(m.id)) { unique.push(m); ids.add(m.id); } });
+      
+      unique.sort((a, b) => {
+        const nameA = dispName(a).toUpperCase();
+        const nameB = dispName(b).toUpperCase();
+        return nameA.localeCompare(nameB);
+      });
+
+      let html = '';
+      let currentLetter = '';
+      unique.forEach(c => {
+        const name = dispName(c);
+        const firstLetter = (name.charAt(0) || '#').toUpperCase();
+        const letter = /[A-Z]/.test(firstLetter) ? firstLetter : '#';
+        
+        if (letter !== currentLetter) {
+          html += `<div class="l-letter">${letter}</div>`;
+          currentLetter = letter;
+        }
+        html += `
+          <div class="l-item" data-cid="${c.id}">
+            <div class="ava" style="background-image: url('${c.avaImg || DA}')"></div>
+            <div class="info">
+              <div class="name">${name}</div>
+              <div class="sub">${c.ms || 'No recent messages'}</div>
+            </div>
+          </div>
+        `;
+      });
+      
+      if (unique.length === 0) {
+        html = `<div style="text-align:center;color:var(--ink2);font-size:12px;padding:40px 0;">暂无联系人</div>`;
+      }
+      
+      newListScroll.innerHTML = html;
+      
+      newListScroll.querySelectorAll('.l-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const cid = el.dataset.cid;
+          const c = unique.find(x => String(x.id) === cid);
+          if (c) openContactCard(c);
+        });
+      });
+    }
+
+    // 打开联系人名片页
+    let cardCurrentContact = null;
+    function openContactCard(c) {
+      cardCurrentContact = c;
+      $('#ccCardName').textContent = dispName(c);
+      $('#ccCardStatus').textContent = c.on ? 'Active Now' : 'Offline';
+      $('#ccCardBg').style.backgroundImage = `url('${c.avaImg || DA}')`;
+      $('#ccCardAvatar').style.backgroundImage = `url('${c.avaImg || DA}')`;
+      
+      const dot = $('#ccCardDot');
+      if (!c.on) {
+        dot.style.background = '#888';
+        dot.style.boxShadow = 'none';
+      } else {
+        dot.style.background = '#4cd964';
+        dot.style.boxShadow = '0 0 8px #4cd964';
+      }
+      
+      contactCardView.classList.add('show');
+    }
+
+    // 关闭联系人名片页
+    $('#ccCardBack').addEventListener('click', () => {
+      contactCardView.classList.remove('show');
+    });
+
+    // 名片页 -> Message 按钮 -> 进入聊天
+    $('#ccBtnChat').addEventListener('click', () => {
+      if (cardCurrentContact) {
+        contactCardView.classList.remove('show');
+        newListView.classList.remove('show');
+        myCardView.classList.add('hide-scale');
+        
+        app.querySelectorAll('.tabbar .tab').forEach((x, i) => {
+          x.classList.toggle('on', i === 0);
+        });
+        
+        openChat(cardCurrentContact);
+      }
+    });
+    
+    // 名片页 -> Persona 按钮 -> 打开人设编辑
+    $('#ccBtnPersona').addEventListener('click', () => {
+      if (cardCurrentContact) {
+        current = cardCurrentContact;
+        openPersona();
+      }
+    });
+
+    /* ================= 面具系统逻辑 ================= */
+    const maskOverlay = $('#caMaskOverlay');
+    const maskListView = $('#caMaskListView');
+    const maskFormView = $('#caMaskFormView');
+    const maskList = $('#caMaskList');
+
+    function renderMasks() {
+      const sel = getSel();
+      const customs = getPrompts();
+      
+      const defaultIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+      const customIcon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>`;
+      
+      let html = `
+        <div class="ms-item ${sel === 'locked' ? 'active' : ''}" data-pid="locked">
+          <div class="ms-icon">${defaultIcon}</div>
+          <div class="ms-info">
+            <div class="ms-name">默认面具</div>
+            <div class="ms-desc">常规的聊天身份，无特殊设定注入。</div>
+          </div>
+          <div class="ms-check"></div>
+        </div>
+      `;
+      
+      customs.forEach(p => {
+        const desc = p.content ? p.content.slice(0, 20) + '...' : '无详细设定';
+        html += `
+          <div class="ms-item ${sel === p.id ? 'active' : ''}" data-pid="${p.id}">
+            <div class="ms-icon">${customIcon}</div>
+            <div class="ms-info">
+              <div class="ms-name">${escapeHtml(p.name)}</div>
+              <div class="ms-desc">${escapeHtml(desc)}</div>
+            </div>
+            <div class="ms-check"></div>
+          </div>
+        `;
+      });
+      
+      maskList.innerHTML = html;
+      
+      maskList.querySelectorAll('.ms-item').forEach(el => {
+        el.addEventListener('click', () => {
+          setSel(el.dataset.pid);
+          renderMasks();
+          renderPrompts(); 
+          setTimeout(() => maskOverlay.classList.remove('show'), 250);
+        });
+      });
+    }
+
+    $('#caMyAvatarBtn').addEventListener('click', () => {
+      renderMasks();
+      maskListView.style.display = 'block';
+      maskFormView.style.display = 'none';
+      maskOverlay.classList.add('show');
+    });
+
+    $('#caMaskClose').addEventListener('click', () => maskOverlay.classList.remove('show'));
+    maskOverlay.addEventListener('click', e => { if (e.target === maskOverlay) maskOverlay.classList.remove('show'); });
+
+    $('#caMaskAddBtn').addEventListener('click', () => {
+      maskListView.style.display = 'none';
+      maskFormView.style.display = 'flex';
+      $('#caNewMaskName').value = '';
+      $('#caNewMaskPrompt').value = '';
+    });
+
+    $('#caMaskCancelBtn').addEventListener('click', () => {
+      maskListView.style.display = 'block';
+      maskFormView.style.display = 'none';
+    });
+
+    $('#caMaskSaveBtn').addEventListener('click', () => {
+      const name = $('#caNewMaskName').value.trim();
+      const content = $('#caNewMaskPrompt').value.trim();
+      if (!name) {
+        $('#caNewMaskName').style.borderColor = '#d66';
+        setTimeout(() => $('#caNewMaskName').style.borderColor = '', 1200);
+        return;
+      }
+      
+      const arr = getPrompts();
+      const id = 'p_' + Date.now().toString(36);
+      arr.push({ id, name, content });
+      setPrompts(arr);
+      setSel(id);
+      
+      renderMasks();
+      renderPrompts();
+      
+      maskListView.style.display = 'block';
+      maskFormView.style.display = 'none';
     });
 
     renderTabs();
