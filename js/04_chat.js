@@ -42,7 +42,7 @@
     try{ const db=await cdbOpen(); return await new Promise((res,rej)=>{ const tx=db.transaction(CKV,'readwrite'); tx.objectStore(CKV).put(v,k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }catch(e){ console.warn('[chat] 保存失败',e); }
   }
 
-  let _prompts=[], _sel='locked', _ctxRounds=10, _timeAware=false, _bilingual=false;
+  let _prompts=[], _sel='locked', _ctxRounds=10, _timeAware=false, _bilingual=false, _fontSize=13.5;
   const getPrompts = () => _prompts;
   const setPrompts = a => { _prompts=a; cdbSet('prompts', a); };
   const getSel = () => _sel;
@@ -53,7 +53,9 @@
   const setTimeAware = b => { _timeAware=b; cdbSet('timeAware', b); };
   const getBilingual = () => _bilingual;
   const setBilingual = b => { _bilingual=b; cdbSet('bilingual', b); };
-  const getSelectedPromptContent = () => { const s=getSel(); if(s==='locked') return LOCKED_PROMPT; const p=getPrompts().find(x=>x.id===s); return p ? (LOCKED_PROMPT + '\n\n# User Persona (user的设定)\n' + p.content) : LOCKED_PROMPT; };
+  const getFontSize = () => _fontSize;
+  const setFontSize = s => { _fontSize=s; cdbSet('fontSize', s); const app=document.getElementById('chatApp'); if(app) app.style.setProperty('--chat-fs', s+'px'); };
+  const getSelectedPromptContent = () => { const s=getSel(); if(s==='locked') return LOCKED_PROMPT; const p=getPrompts().find(x=>x.id===s); return p ? (LOCKED_PROMPT + '\n\n# User Persona (user设定)\n' + p.content) : LOCKED_PROMPT; };
 
   /* 读取 API 连接（与 9.api.js 共用 IndexedDB） */
   function apiDbAll(){ return new Promise(resolve=>{ try{ const r=indexedDB.open('HomeApiDB',1); r.onsuccess=e=>{ const db=e.target.result; if(!db.objectStoreNames.contains('conns')){ resolve([]); db.close(); return; } const tx=db.transaction('conns','readonly'); const q=tx.objectStore('conns').getAll(); q.onsuccess=()=>resolve(q.result||[]); q.onerror=()=>resolve([]); tx.oncomplete=()=>db.close(); }; r.onerror=()=>resolve([]); }catch{ resolve([]); } }); }
@@ -199,14 +201,14 @@
   #chatApp .time-tip { text-align:center; font-size:9px; color:var(--ink2); }
   #chatApp .row { display:flex; gap:10px; align-items:flex-start; }
   #chatApp .row .ava { width:38px; height:38px; border-radius:50%; background:#f0f0f0 center/cover; overflow:hidden; flex-shrink:0; }
-  #chatApp .row .bubble { max-width:66%; padding:6px 13px; font-size:13.5px; line-height:1.45; word-break:break-word; font-family:system-ui,-apple-system,sans-serif !important; position:relative; border-radius:13px; }
+  #chatApp .row .bubble { max-width:66%; padding:6px 13px; font-size:var(--chat-fs, 13.5px); line-height:1.45; word-break:break-word; font-family:system-ui,-apple-system,sans-serif !important; position:relative; border-radius:13px; }
   #chatApp .row.you .bubble { background:#fff; color:#555; border:1px solid #e2e2e2; }
   #chatApp .row.me { flex-direction:row-reverse; }
   #chatApp .row.me .bubble { background:#ece5f5; color:#42335e; border:1px solid #d0c0e8; }
   #chatApp .bilingual-split { display:flex; flex-direction:column; }
-  #chatApp .bilingual-split .en { font-size:14px; font-weight:500; color:inherit; margin-bottom:8px; line-height:1.5; }
+  #chatApp .bilingual-split .en { font-size:calc(var(--chat-fs, 13.5px) * 1.05); font-weight:500; color:inherit; margin-bottom:8px; line-height:1.5; }
   #chatApp .bilingual-split .divider { height:1px; background:repeating-linear-gradient(to right, currentColor 0, currentColor 4px, transparent 4px, transparent 8px); opacity:0.2; margin-bottom:8px; }
-  #chatApp .bilingual-split .zh { font-size:13px; color:inherit; opacity:0.55; line-height:1.4; }
+  #chatApp .bilingual-split .zh { font-size:calc(var(--chat-fs, 13.5px) * 0.95); color:inherit; opacity:0.55; line-height:1.4; }
   
   #chatApp .msg-chk { width:22px; height:22px; border-radius:50%; border:1.5px solid #ccc; flex-shrink:0; position:relative; margin-top:auto; margin-bottom:auto; cursor:pointer; transition:0.2s; }
   #chatApp .msg-chk.on { background:#1a1a1a; border-color:#1a1a1a; }
@@ -750,7 +752,7 @@
           <div class="sp-grp">
             <div class="sp-row" id="caRowWallpaper"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><rect class="ln" x="3.5" y="5" width="17" height="14" rx="4"/><circle class="fl" cx="8.5" cy="9.5" r="1.3"/><path class="ln" d="M4 16l4.2-4 3 2.8 3.5-3.3L20 15"/></svg></span><span class="sl"><div class="n">聊天壁纸</div><div class="d">更换对话背景</div></span><span class="val" id="caWpResetBtn" style="display:none; width:22px; height:22px; border-radius:50%; background:#1a1a1a; border:none; display:flex; align-items:center; justify-content:center; box-shadow:none; margin-right:8px;"><svg viewBox="0 0 24 24" style="width:12px; height:12px; color:#fff;"><path class="ln" d="M18 6L6 18M6 6l12 12"/></svg></span><span class="arr"><svg class="ic-svg" width="17" height="17" viewBox="0 0 24 24"><path class="ln" d="M9 6l6 6-6 6"/></svg></span></div>
             <div class="sp-row"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><path class="ln" d="M5 6.5h14a1.5 1.5 0 0 1 1.5 1.5v6a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H5A1.5 1.5 0 0 1 3.5 14V8A1.5 1.5 0 0 1 5 6.5z"/></svg></span><span class="sl"><div class="n">气泡样式</div><div class="d">切换气泡形状与颜色</div></span><span class="arr"><svg class="ic-svg" width="17" height="17" viewBox="0 0 24 24"><path class="ln" d="M9 6l6 6-6 6"/></svg></span></div>
-            <div class="sp-row"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><path class="ln" d="M6 7h12M6 12h9M6 17h6"/></svg></span><span class="sl"><div class="n">字体大小</div></span><span class="val">中</span><span class="arr"><svg class="ic-svg" width="17" height="17" viewBox="0 0 24 24"><path class="ln" d="M9 6l6 6-6 6"/></svg></span></div>
+            <div class="sp-row"><span class="si"><svg class="ic-svg" width="21" height="21" viewBox="0 0 24 24"><path class="ln" d="M6 7h12M6 12h9M6 17h6"/></svg></span><span class="sl"><div class="n">字体大小</div></span><input type="number" id="caFontSizeInput" style="width:40px; text-align:right; border:none; background:transparent; font-size:12px; color:var(--ink2); outline:none;" value="13.5"><span class="val" style="margin-left:2px;margin-right:0;">px</span></div>
           </div>
 
           <div class="sp-sec"><span class="dot"></span><span class="tx">消息</span><span class="en">messages</span><span class="lf"></span></div>
@@ -1007,6 +1009,8 @@
       const cr = await cdbGet('ctxRounds'); _ctxRounds = (typeof cr==='number') ? cr : 10;
       _timeAware = (await cdbGet('timeAware')) === true;
       _bilingual = (await cdbGet('bilingual')) === true;
+      const fs = await cdbGet('fontSize'); if(fs) _fontSize = fs;
+      const app = document.getElementById('chatApp'); if(app) app.style.setProperty('--chat-fs', _fontSize+'px');
     }
 
     const dispName = c => c.note || c.nm;
@@ -1419,8 +1423,27 @@
     const rowBilingual=$('#caRowBilingual');
     if(rowBilingual) rowBilingual.addEventListener('click', ()=>{ setBilingual(!getBilingual()); renderRowBilingual(); });
 
+    /* 字体大小输入框事件 */
+    const fontSizeInput=$('#caFontSizeInput');
+    if(fontSizeInput) {
+      fontSizeInput.addEventListener('blur', () => {
+        let val = parseFloat(fontSizeInput.value);
+        if(isNaN(val) || val < 10) val = 10;
+        if(val > 30) val = 30;
+        fontSizeInput.value = val;
+        setFontSize(val);
+      });
+      fontSizeInput.addEventListener('keydown', e => {
+        if(e.key === 'Enter') fontSizeInput.blur();
+      });
+    }
+
     /* 打开设置面板时同步开关状态 */
-    $('#caChatSet').addEventListener('click', () => { renderRowTime(); renderRowBilingual(); });
+    $('#caChatSet').addEventListener('click', () => { 
+      renderRowTime(); 
+      renderRowBilingual(); 
+      if(fontSizeInput) fontSizeInput.value = getFontSize();
+    });
 
     /* 发送：只把我的消息存下，不自动请求 AI */
     const field = $('#caField'), inputBar = $('#caInputBar');
