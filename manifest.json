@@ -1,0 +1,25 @@
+{
+  "name": "Mint#4",
+  "short_name": "Mint#4",
+  "id": "./index.html",
+  "description": "Mint#4 — Standalone App",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#FFFFFF",
+  "lang": "zh-CN",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://i.postimg.cc/fbgS5mrg/1780551867047.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://i.postimg.cc/fbgS5mrg/1780551867047.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
