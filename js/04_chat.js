@@ -199,7 +199,6 @@
   #chatApp .time-tip { text-align:center; font-size:9px; color:var(--ink2); }
   #chatApp .row { display:flex; gap:10px; align-items:flex-start; }
   #chatApp .row .ava { width:38px; height:38px; border-radius:50%; background:#f0f0f0 center/cover; overflow:hidden; flex-shrink:0; }
-  #chatApp .row { display:flex; gap:10px; align-items:center; }
   #chatApp .row .bubble { max-width:66%; padding:6px 13px; font-size:13.5px; line-height:1.45; word-break:break-word; font-family:system-ui,-apple-system,sans-serif !important; position:relative; border-radius:13px; }
   #chatApp .row.you .bubble { background:#fff; color:#555; border:1px solid #e2e2e2; }
   #chatApp .row.me { flex-direction:row-reverse; }
@@ -207,7 +206,7 @@
   #chatApp .bilingual-split { display:flex; flex-direction:column; }
   #chatApp .bilingual-split .en { font-size:14px; font-weight:500; color:inherit; margin-bottom:8px; line-height:1.5; }
   #chatApp .bilingual-split .divider { height:1px; background:repeating-linear-gradient(to right, currentColor 0, currentColor 4px, transparent 4px, transparent 8px); opacity:0.2; margin-bottom:8px; }
-  #chatApp .bilingual-split .zh { font-size:13px; color:inherit; opacity:0.8; line-height:1.4; }
+  #chatApp .bilingual-split .zh { font-size:13px; color:inherit; opacity:0.55; line-height:1.4; }
   
   #chatApp .msg-chk { width:22px; height:22px; border-radius:50%; border:1.5px solid #ccc; flex-shrink:0; position:relative; margin-top:auto; margin-bottom:auto; cursor:pointer; transition:0.2s; }
   #chatApp .msg-chk.on { background:#1a1a1a; border-color:#1a1a1a; }
