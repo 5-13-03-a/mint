@@ -201,7 +201,9 @@
   #chatApp .time-tip { text-align:center; font-size:9px; color:var(--ink2); }
   #chatApp .row { display:flex; gap:10px; align-items:flex-start; }
   #chatApp .row .ava { width:38px; height:38px; border-radius:50%; background:#f0f0f0 center/cover; overflow:hidden; flex-shrink:0; }
-  #chatApp .row .bubble { max-width:66%; padding:6px 13px; font-size:var(--chat-fs, 13.5px); line-height:1.45; word-break:break-word; font-family:system-ui,-apple-system,sans-serif !important; position:relative; border-radius:13px; }
+  #chatApp .row .bubble { max-width:66%; padding:6px 13px; font-size:var(--chat-fs, 13.5px); line-height:1.45; word-break:break-word; font-family:system-ui,-apple-system,sans-serif !important; position:relative; border-radius:13px; margin-top:4px; }
+  #chatApp .row { align-items: flex-start !important; }
+  #chatApp .msg-chk { margin-top: 8px !important; margin-bottom: 0 !important; }
   #chatApp .row.you .bubble { background:#fff; color:#555; border:1px solid #e2e2e2; }
   #chatApp .row.me { flex-direction:row-reverse; }
   #chatApp .row.me .bubble { background:#ece5f5; color:#42335e; border:1px solid #d0c0e8; }
